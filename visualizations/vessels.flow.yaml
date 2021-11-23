@@ -1,0 +1,120 @@
+npmDependencies:
+  h3-js: "^3.7.2"
+  geolib: "^3.3.3"
+  moment: "^2.24"
+
+captures:
+  examples/ais/ais-data-capture:
+    endpoint:
+      airbyteSource:
+        image: ghcr.io/estuary/source-s3:dev
+        config: {"awsAccessKeyId":"","awsSecretAccessKey":"", "bucket": "", "region": "xxx"}
+    bindings:
+      - resource:
+          stream: estuary-ais-data
+          syncMode: incremental
+        target: examples/ais/vessels
+
+collections:
+  examples/ais/vessels:
+    key: [/timestamp, /mmsi]
+    schema: schema.yaml#/$defs/aisVessel
+    projections:
+      MMSI: /mmsi
+      BaseDateTime: /timestamp
+      LAT: /location/lat
+      LON: /location/lon
+      SOG: /velocity/sog
+      COG: /velocity/cog
+      Heading: /heading
+      VesselName: /basic/name
+      IMO: /basic/imo
+      VesselType: /basic/type
+      Status: /basic/status
+      Length: /basic/length
+      Width: /basic/width
+      Draft: /basic/draft
+
+  examples/ais/vessel-location-links:
+    key: [/vessel/timestamp, /vessel/mmsi]
+    schema: schema.yaml#/$defs/vesselLocationLink
+    derivation:
+      register:
+        schema: schema.yaml#/$defs/location
+        initial: { lat: -90, lon: -180 }
+      transform:
+        locationLink:
+          source: { name: examples/ais/vessels }
+          shuffle: { key: [/mmsi] }
+          update: { lambda: typescript }
+          publish: { lambda: typescript }
+ 
+  examples/ais/vessels-last-seen:
+    key: [/mmsi]
+    schema: schema.yaml#/$defs/aisVessel
+    derivation:
+      transform:
+        lastSeen:
+          source: { name: examples/ais/vessels }
+          publish:
+            lambda: typescript
+
+  examples/ais/vessel-movements:
+    key: [/h3_index, /vessel/timestamp, /vessel/mmsi, /action]
+    schema: schema.yaml#/$defs/vesselMovement
+    derivation:
+      register:
+        schema: schema.yaml#/$defs/vesselMovementRegister
+        initial: { h3_index: "" }
+      transform:
+        vesselMovement:
+          source: { name: examples/ais/vessels }
+          shuffle: { key: [/mmsi] }
+          update: {lambda: typescript}
+          publish: {lambda: typescript}
+
+  examples/ais/vessel-activities-in-region:
+    key: [/h3_index]
+    schema: schema.yaml#/$defs/vesselActivitiesInRegion
+    derivation:
+      transform:
+        vesselActivitiesInRegion:
+          source: { name: examples/ais/vessel-movements }
+          shuffle: { key: [/h3_index] }
+          publish: { lambda: typescript }
+
+materializations:
+  examples/ais/vessels-elastic:
+    endpoint:
+      flowSink:
+        image: ghcr.io/estuary/materialize-elasticsearch:dev
+        config:
+          endpoint: http://localhost:9200
+    bindings:
+      - resource:
+          index: vessel-location-links
+          delta_updates: true
+          field_overrides:
+              - pointer: /visual_link
+                es_type:
+                  field_type: geo_shape
+        source: examples/ais/vessel-location-links
+      - resource:
+          index: vessels-last-seen
+          delta_updates: false
+          field_overrides:
+              - pointer: /location
+                es_type:
+                  field_type: geo_point
+        source: examples/ais/vessels-last-seen
+      - resource:
+          index: vessel-activities-in-region
+          delta_updates: false
+          field_overrides:
+            - pointer: /visualized_region
+              es_type:
+                field_type: geo_shape
+        source: examples/ais/vessel-activities-in-region
+       
+storageMappings:
+  "": { stores: [{ provider: S3, bucket: estuary-tmp }] }
