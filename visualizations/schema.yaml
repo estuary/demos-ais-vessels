@@ -64,6 +64,8 @@ $defs:
     description: "a record describing a single step in vessel movement by connecting two consecutive reported vessel locations."
     type: object
     properties:
+       vessel:
+         $ref: "#/$defs/aisVessel"
        visual_link:
          description: "A geo line-shape that indicates the movement of the vessel from previous reported location to the current one"
          type: object
@@ -75,9 +77,7 @@ $defs:
                type: array
                items: {type: number}
          required: [type, coordinates]
-       vessel:
-         $ref: "#/$defs/aisVessel"
-    required: [vessel]
+   required: [vessel]
  
   vesselMovement:
     description: "a record describing the movement of a vessel into or out of a H3 hexagon region."

@@ -7,8 +7,8 @@ captures:
   examples/ais/ais-data-capture:
     endpoint:
       airbyteSource:
-        image: ghcr.io/estuary/source-s3:6b443bd 
-        config: {"awsAccessKeyId":"","awsSecretAccessKey":"", "bucket": "", "region": "xxx"}
+        image: ghcr.io/estuary/source-s3:dev
+        config: {"awsAccessKeyId":"","awsSecretAccessKey":"", "bucket": "estuary-ais-data", "region": "us-east-1"}
     bindings:
       - resource:
           stream: estuary-ais-data
@@ -35,6 +35,16 @@ collections:
       Width: /basic/width
       Draft: /basic/draft
 
+  examples/ais/vessels-last-seen:
+    key: [/mmsi]
+    schema: schema.yaml#/$defs/aisVessel
+    derivation:
+      transform:
+        lastSeen:
+          source: { name: examples/ais/vessels }
+          publish:
+            lambda: typescript
+
   examples/ais/vessel-location-links:
     key: [/vessel/timestamp, /vessel/mmsi]
     schema: schema.yaml#/$defs/vesselLocationLink
@@ -49,16 +59,6 @@ collections:
           update: { lambda: typescript }
           publish: { lambda: typescript }
  
-  examples/ais/vessels-last-seen:
-    key: [/mmsi]
-    schema: schema.yaml#/$defs/aisVessel
-    derivation:
-      transform:
-        lastSeen:
-          source: { name: examples/ais/vessels }
-          publish:
-            lambda: typescript
-
   examples/ais/vessel-movements:
     key: [/h3_index, /vessel/timestamp, /vessel/mmsi, /action]
     schema: schema.yaml#/$defs/vesselMovement
@@ -87,20 +87,16 @@ materializations:
   examples/ais/vessels-elastic:
     endpoint:
       flowSink:
-        image: ghcr.io/estuary/materialize-elasticsearch:79d77cc
+        image: ghcr.io/estuary/materialize-elasticsearch:e37a169
         config:
-          endpoint: http://localhost:9200
+                #endpoint: http://localhost:9200
+          endpoint: https://vessel-demo.es.us-central1.gcp.cloud.es.io:9243
+          username: elastic
+          password: xxxx
     bindings:
       - resource:
-          index: vessel-location-links
-          delta_updates: true
-          field_overrides:
-              - pointer: /visual_link
-                es_type:
-                  field_type: geo_shape
-        source: examples/ais/vessel-location-links
-      - resource:
           index: vessels-last-seen
+          number_of_shards: 1
           delta_updates: false
           field_overrides:
               - pointer: /location
@@ -108,12 +104,22 @@ materializations:
                   field_type: geo_point
         source: examples/ais/vessels-last-seen
       - resource:
-          index: vessel-activities-in-region
-          delta_updates: false
+          index: vessel-location-links
+          number_of_shards: 1
+          delta_updates: true
           field_overrides:
-            - pointer: /visualized_region
-              es_type:
-                field_type: geo_shape
+              - pointer: /visual_link
+                es_type:
+                  field_type: geo_shape
+        source: examples/ais/vessel-location-links
+      - resource:
+           index: vessel-activities-in-region
+           delta_updates: false
+           number_of_shards: 1
+           field_overrides:
+             - pointer: /visualized_region
+               es_type:
+                 field_type: geo_shape
         source: examples/ais/vessel-activities-in-region
        
 storageMappings:
