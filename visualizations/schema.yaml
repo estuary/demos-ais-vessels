@@ -1,0 +1,146 @@
+$defs:
+  location:
+    description: "the location of the vessel"
+    type: object
+    properties:
+      lat:
+        type: number
+        minimum: -90
+        maximum: 90
+      lon:
+        type: number
+        minimum: -180
+        maximum: 180
+    required: [lat, lon]
+ 
+  aisVessel:
+    description: "a record describing the location of a vessel at a time."
+    type: object
+    properties:
+      mmsi:
+        description: "maritime mobile service identities."
+        type: string
+      timestamp:
+        description: "the time at which the location data is reported."
+        type: string
+        pattern: "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"
+      location:
+        $ref: "#/$defs/location"
+      heading:
+        description: "the compass direction in which the craft's bow or nose is pointed."
+        type: number
+      velocity:
+        description: "vessel velocity"
+        type: object
+        properties:
+          cog:
+            description: "course over ground."
+            type: number
+          sog:
+            description: "speed over ground."
+            type: number
+      basic:
+        description: "basic facts of the vessel"
+        type: object
+        properties:
+          imo:
+            description: "international maritime organization id"
+            type: ["null", string]
+          length:
+            type: ["null", number]
+          draft:
+            type: ["null", number]
+          name:
+            type: ["null", string]
+          status:
+            type: ["null", string]
+          type:
+            type: ["null", string]
+          width:
+            type: ["null", number]
+    required: [mmsi, timestamp, location]
+
+  vesselLocationLink:
+    description: "a record describing a single step in vessel movement by connecting two consecutive reported vessel locations."
+    type: object
+    properties:
+       visual_link:
+         description: "A geo line-shape that indicates the movement of the vessel from previous reported location to the current one"
+         type: object
+         properties:
+           type: { const: "linestring" }
+           coordinates:
+             type: array
+             items: 
+               type: array
+               items: {type: number}
+         required: [type, coordinates]
+       vessel:
+         $ref: "#/$defs/aisVessel"
+    required: [vessel]
+ 
+  vesselMovement:
+    description: "a record describing the movement of a vessel into or out of a H3 hexagon region."
+    type: object
+    properties:
+      h3_index:
+        description: "the id of the h3 hexagon affected. https://eng.uber.com/h3/"
+        type: string
+      vessel:
+        description: "the ais report that triggers this movement action."
+        $ref: "#/$defs/aisVessel"
+      action:
+        description: "the state change observed during the vessel movement.
+          enter - if the vessel sails into the region.
+          leave - the reverse of enter."
+        type: string
+        enum: [enter, leave]
+    required: [h3_index, vessel, action]
+
+  vesselMovementRegister:
+    description: "the type of data in the register when generating vessel movement actions. It records the id of the hexagon region in which the vessel was last observed."
+    type: object
+    properties:
+      h3_index:
+        type: string
+    required: [h3_index]
+
+  vesselActivitiesInRegion:
+    description: "analyze the number of vessels entering/leaving the h3 regions"
+    type: object
+    reduce: {strategy: merge}
+    properties:
+      h3_index:
+        type: string
+      num_enters:
+        type: number
+        reduce: {strategy: sum}
+      num_leaves:
+        type: number
+        reduce: {strategy: sum}
+      visualized_region:
+          description: "A geo shape corresponding to the region of the h3_index"
+          type: object
+          properties:
+            type: { const: "polygon" }
+            coordinates:
+              type: array
+              items:
+                type: array
+                items: 
+                  type: array
+                  items: {type: number}
+          required: [type, coordinates]
+    required: [h3_index, visualized_region]
+
+  vesselsInRegionRegister:
+    description: "the type of data in the register when generating closeVesselPair. It records all the vessels located in the hexagon regions that are `closeTo` the region under consideration."
+    type: object
+    reduce:
+      strategy: set
+      key: ["/mmsi"]
+    additionalProperties:
+      type: array
+      items:
+        $ref: "#/$defs/aisVessel"
+      reduce: { strategy: merge }
